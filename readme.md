@@ -29,26 +29,25 @@ It provides two key utilities:
 
 ---
 
-## 🧰 Installation
+## 🧰 Installation (One Command)
 
-Clone and install system-wide:
-	
+Run this single command to install everything:
+
     bash <(curl -fsSL https://raw.githubusercontent.com/donnebanget/laravel-server-tools/main/install.sh)
-	
-    or
-	
-    bash <(wget -qO- https://raw.githubusercontent.com/donnebanget/laravel-server-tools/main/install.sh)
-	
-	
-This script will:
-- Copy binaries to `/usr/local/bin`
-- Add completions to `/etc/bash_completion.d`
-- Create `/var/log/laravel-workers` for queue logs
 
-After installation, restart your shell or run:
-	```
+Or if `curl` is not available:
+
+    bash <(wget -qO- https://raw.githubusercontent.com/donnebanget/laravel-server-tools/main/install.sh)
+
+This will automatically:
+- Clone the repository
+- Install binaries to `/usr/local/bin`
+- Enable bash completions in `/etc/bash_completion.d`
+- Create worker log directory `/var/log/laravel-workers`
+
+After installation, enable completions immediately by running:
+
     source /etc/bash_completion
-	```
 
 ---
 
