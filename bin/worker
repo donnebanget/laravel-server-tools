@@ -248,6 +248,36 @@ EOF
   reload_supervisor || { echo -e "${YELLOW}⚠️  Could not reload supervisor (insufficient privileges).${NC}"; }
   supervisorctl_cmd start "${user}-worker" >/dev/null 2>&1 || supervisorctl_cmd restart "${user}-worker" >/dev/null 2>&1
 
+  # Create sudoers file for user to allow restart without password
+  local sudoers_file="/etc/sudoers.d/${user}-worker"
+  echo -e "${CYAN}🔐 Creating sudoers entry for user '${user}'...${NC}"
+  
+  local sudoers_content="${user} ALL=(root) NOPASSWD: /usr/bin/supervisorctl restart ${user}-worker, /usr/bin/supervisorctl status ${user}-worker, /usr/bin/supervisorctl stop ${user}-worker, /usr/bin/supervisorctl start ${user}-worker"
+  
+  if is_root; then
+    echo "$sudoers_content" > "$sudoers_file"
+    chmod 0440 "$sudoers_file"
+  else
+    if sudo -n true 2>/dev/null; then
+      echo "$sudoers_content" | sudo -n tee "$sudoers_file" >/dev/null
+      sudo -n chmod 0440 "$sudoers_file"
+    else
+      echo -e "${YELLOW}⚠️  Could not create sudoers file (need root access).${NC}"
+    fi
+  fi
+
+  # Verify sudoers syntax
+  if command -v visudo >/dev/null 2>&1; then
+    if is_root; then
+      if ! visudo -c -f "$sudoers_file" >/dev/null 2>&1; then
+        echo -e "${RED}⚠️  Sudoers syntax error, removing file...${NC}"
+        rm -f "$sudoers_file"
+      else
+        echo -e "${GREEN}✅ Sudoers entry created successfully.${NC}"
+      fi
+    fi
+  fi
+
   echo -e "${GREEN}✅ Worker '${user}-worker' created successfully!${NC}"
   echo -e "${CYAN}   Domain:${NC} ${domain}"
   echo -e "${CYAN}   Driver:${NC} ${driver}"
@@ -294,6 +324,19 @@ cmd_remove() {
       sudo -n rm -f "$conf_file"
     else
       echo -e "${RED}Error:${NC} cannot remove ${conf_file} (need sudo without password)." ; exit 1
+    fi
+  fi
+  
+  # Remove sudoers file
+  local sudoers_file="/etc/sudoers.d/${user}-worker"
+  if [ -f "$sudoers_file" ]; then
+    echo -e "${CYAN}🔐 Removing sudoers entry...${NC}"
+    if is_root; then
+      rm -f "$sudoers_file"
+    else
+      if sudo -n true 2>/dev/null; then
+        sudo -n rm -f "$sudoers_file"
+      fi
     fi
   fi
   
