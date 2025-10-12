@@ -19,16 +19,14 @@ for arg in "$@"; do
     --init) MODE="init" ;;
     --update) MODE="update" ;;
     --help) 
-      cat <<EOF
-Usage: deploy [OPTIONS]
-
-Options:
-  --init      First-time deployment with full initialization
-  --update    Pull from Git and rebuild everything
-  --help      Show this help message
-
-Without options: Quick optimization (no Git/NPM rebuild)
-EOF
+      echo "Usage: deploy [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --init      First-time deployment with full initialization"
+      echo "  --update    Pull from Git and rebuild everything"
+      echo "  --help      Show this help message"
+      echo ""
+      echo "Without options: Quick optimization (no Git/NPM rebuild)"
       exit 0
       ;;
   esac
@@ -181,16 +179,16 @@ fi
 echo -e "\n${YELLOW}🔄 Restarting Supervisor if available...${NC}"
 
 if command -v supervisorctl &>/dev/null; then
-  if sudo -n true 2>/dev/null; then
-    # Check if worker exists first
+  # Try to restart worker directly (will succeed if user has specific sudo permission)
+  if sudo supervisorctl restart "${USER_PREFIX}-worker" 2>/dev/null; then
+    echo -e "${GREEN}✅ Worker '${USER_PREFIX}-worker' restarted.${NC}"
+  else
+    # Check if it's because worker doesn't exist or no permission
     if sudo supervisorctl status "${USER_PREFIX}-worker" &>/dev/null; then
-      sudo supervisorctl restart "${USER_PREFIX}-worker" 2>/dev/null
-      echo -e "${GREEN}✅ Worker '${USER_PREFIX}-worker' restarted.${NC}"
+      echo -e "${YELLOW}⚠️  Failed to restart worker (permission issue).${NC}"
     else
       echo -e "${CYAN}ℹ️  Worker '${USER_PREFIX}-worker' doesn't exist (skip restart).${NC}"
     fi
-  else
-    echo -e "${YELLOW}⚠️  Skipping Supervisor restart (no sudo privilege).${NC}"
   fi
 else
   echo -e "${CYAN}ℹ️  Supervisor not installed.${NC}"
