@@ -32,13 +32,13 @@ It provides two key utilities:
 ## 🧰 Installation
 
 Clone and install system-wide:
-	```
+	
     bash <(curl -fsSL https://raw.githubusercontent.com/donnebanget/laravel-server-tools/main/install.sh)
-	```
+	
     or
-	```
+	
     bash <(wget -qO- https://raw.githubusercontent.com/donnebanget/laravel-server-tools/main/install.sh)
-	```
+	
 	
 This script will:
 - Copy binaries to `/usr/local/bin`
