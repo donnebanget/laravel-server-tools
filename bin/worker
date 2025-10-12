@@ -1,11 +1,12 @@
 #!/bin/bash
 # =====================================================
-# Laravel Worker Pro CLI (final)
+# Laravel Worker Pro CLI
 # /usr/local/bin/worker
+# Version: 1.0.1
 # =====================================================
 # Features:
 #   worker create [user] [domain?] [queue?]
-#   worker remove [user]
+#   worker remove [user] [--force]
 #   worker list
 #   worker restart [user]
 #   worker status [user?]
@@ -19,21 +20,12 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 SUPERVISOR_CONF_DIR="/etc/supervisor/conf.d"
-BASE_WEB_ROOT="/var/www"  # FastPanel default: /var/www/<user>/data/www/<domain>
+BASE_WEB_ROOT="/var/www"
 
 # ---- Helpers ----
 is_root() { [ "$(id -u)" -eq 0 ]; }
 
-sudo_ok_for() {
-  # check if sudo -n is allowed to run the given command (non-interactive)
-  if is_root; then
-    return 0
-  fi
-  sudo -n -l 2>/dev/null | grep -q "$1"
-}
-
 run_sudo_cmd() {
-  # run a command as root: prefer direct if root, else sudo -n
   if is_root; then
     eval "$*"
   else
@@ -79,7 +71,6 @@ reload_supervisor() {
 }
 
 supervisorctl_cmd() {
-  # wrapper to run supervisorctl commands, returns exit code
   if is_root; then
     supervisorctl "$@"
   else
@@ -99,7 +90,6 @@ find_laravel_sites_for_user() {
   if [ ! -d "$base" ]; then
     return 1
   fi
-  # find directories under base that contain artisan - only top level
   find "$base" -maxdepth 1 -mindepth 1 -type d -printf "%f\n" 2>/dev/null | while read -r d; do
     [ -f "${base}/${d}/artisan" ] && echo "$d"
   done
@@ -133,13 +123,25 @@ auto_pick_domain_interactive() {
 # ---- Commands ----
 print_usage() {
   cat <<EOF
+${CYAN}Laravel Worker Manager v1.0.1${NC}
+
 ${YELLOW}Usage:${NC}
-  worker create [user] [domain?] [queue?]
-  worker remove [user]
-  worker list
-  worker restart [user]
-  worker status [user?]
-  worker logs [user] [out|err]
+  worker create [user] [domain?] [queue?]    Create a new worker
+  worker remove [user] [--force]             Remove a worker (with confirmation)
+  worker list                                 List all workers
+  worker restart [user]                       Restart a worker
+  worker status [user?]                       Show worker status
+  worker logs [user] [out|err]                Tail worker logs
+
+${YELLOW}Examples:${NC}
+  worker create john example.com
+  worker create john example.com emails
+  worker remove john --force
+  worker logs john out
+
+${YELLOW}Notes:${NC}
+  - Logs are stored in: {project}/storage/logs/worker.out.log & worker.err.log
+  - Worker config auto-detects queue driver and environment from .env
 EOF
 }
 
@@ -150,7 +152,7 @@ cmd_create() {
 
   if [ -z "$user" ]; then print_usage; exit 1; fi
 
-  # detect domain if not provided
+  # Detect domain if not provided
   if [ -z "$domain" ]; then
     domain=$(auto_pick_domain_interactive "$user") || { echo -e "${RED}No domain auto-detected for user ${user}.${NC}"; exit 1; }
     echo -e "${CYAN}🌐 Auto-detected domain:${NC} ${domain}"
@@ -165,17 +167,34 @@ cmd_create() {
   fi
 
   local conf_file="${SUPERVISOR_CONF_DIR}/${user}-worker.conf"
+  
+  # Log files in project storage directory
   local log_out="${project_dir}/storage/logs/worker.out.log"
   local log_err="${project_dir}/storage/logs/worker.err.log"
 
-  local cmd="php artisan queue:work database --sleep=10 --tries=1"
+  # Detect queue driver from .env
+  local driver="database"
+  if [ -f "${project_dir}/.env" ]; then
+    detected=$(grep "^QUEUE_CONNECTION=" "${project_dir}/.env" | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    [ -n "$detected" ] && driver="$detected"
+  fi
+
+  # Detect environment from .env
+  local app_env="production"
+  local app_debug="false"
+  if [ -f "${project_dir}/.env" ]; then
+    app_env=$(grep "^APP_ENV=" "${project_dir}/.env" | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "production")
+    app_debug=$(grep "^APP_DEBUG=" "${project_dir}/.env" | cut -d'=' -f2 | tr -d '"' | tr -d "'" || echo "false")
+  fi
+
+  local cmd="php artisan queue:work ${driver} --sleep=3 --tries=3 --max-time=3600"
   if [ -n "$queue" ]; then
     cmd="${cmd} --queue=${queue}"
   fi
 
   echo -e "${YELLOW}⚙️  Creating worker for user '${user}' (domain: ${domain})...${NC}"
 
-  # prepare conf content
+  # Prepare conf content
   read -r -d '' conf_content <<EOF || true
 [program:${user}-worker]
 command=${cmd}
@@ -191,13 +210,15 @@ numprocs=1
 redirect_stderr=true
 stdout_logfile=${log_out}
 stderr_logfile=${log_err}
-stdout_logfile_maxbytes=2MB
-stderr_logfile_maxbytes=2MB
-stopwaitsecs=3600
-environment=APP_ENV=production,APP_DEBUG=false
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=5
+stderr_logfile_maxbytes=10MB
+stderr_logfile_backups=5
+stopwaitsecs=60
+environment=APP_ENV="${app_env}",APP_DEBUG="${app_debug}"
 EOF
 
-  # remove old if exists (force)
+  # Remove old if exists (force)
   if is_root; then
     rm -f "$conf_file"
   else
@@ -208,34 +229,66 @@ EOF
     fi
   fi
 
-  # write conf
+  # Write conf
   write_conf "$conf_file" "$conf_content" || { echo -e "${RED}❌ Failed to write conf (permission?).${NC}"; exit 1; }
 
-  # ensure log dir exists and owned by user
+  # Ensure storage/logs directory exists with proper ownership
+  echo -e "${CYAN}📁 Ensuring log directory exists...${NC}"
   if is_root; then
     mkdir -p "${project_dir}/storage/logs"
     chown -R "${user}":"${user}" "${project_dir}/storage/logs" 2>/dev/null || true
+    chmod 755 "${project_dir}/storage/logs" 2>/dev/null || true
   else
     if sudo -n true 2>/dev/null; then
       sudo -n mkdir -p "${project_dir}/storage/logs"
       sudo -n chown -R "${user}":"${user}" "${project_dir}/storage/logs" 2>/dev/null || true
+      sudo -n chmod 755 "${project_dir}/storage/logs" 2>/dev/null || true
     fi
   fi
 
-  # reload and start
+  # Reload and start
   reload_supervisor || { echo -e "${YELLOW}⚠️  Could not reload supervisor (insufficient privileges).${NC}"; }
   supervisorctl_cmd start "${user}-worker" >/dev/null 2>&1 || supervisorctl_cmd restart "${user}-worker" >/dev/null 2>&1
 
-  echo -e "${GREEN}✅ Worker '${user}-worker' created (domain: ${domain}).${NC}"
-  [ -n "$queue" ] && echo -e "${CYAN}🎯 Queue:${NC} ${queue}"
+  echo -e "${GREEN}✅ Worker '${user}-worker' created successfully!${NC}"
+  echo -e "${CYAN}   Domain:${NC} ${domain}"
+  echo -e "${CYAN}   Driver:${NC} ${driver}"
+  [ -n "$queue" ] && echo -e "${CYAN}   Queue:${NC} ${queue}"
+  echo -e "${CYAN}   Environment:${NC} ${app_env}"
+  echo -e "${CYAN}   Logs:${NC} ${project_dir}/storage/logs/worker.{out,err}.log"
   echo ""
 }
 
 cmd_remove() {
   local user="$1"
+  shift
+  local force=false
+  
   if [ -z "$user" ]; then print_usage; exit 1; fi
+  
+  # Check for --force flag
+  for arg in "$@"; do
+    [ "$arg" = "--force" ] && force=true
+  done
+  
   local conf_file="${SUPERVISOR_CONF_DIR}/${user}-worker.conf"
-  echo -e "${YELLOW}🗑 Removing worker for ${user}...${NC}"
+  
+  # Confirmation prompt unless --force
+  if [ "$force" = false ]; then
+    echo -e "${YELLOW}⚠️  This will remove worker '${user}-worker'${NC}"
+    read -p "Are you sure? (y/N): " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+      echo "Cancelled."
+      exit 0
+    fi
+  fi
+  
+  echo -e "${YELLOW}🗑️  Removing worker for ${user}...${NC}"
+  
+  # Stop worker first
+  supervisorctl_cmd stop "${user}-worker" >/dev/null 2>&1 || true
+  
+  # Remove config file
   if is_root; then
     rm -f "$conf_file"
   else
@@ -245,8 +298,10 @@ cmd_remove() {
       echo -e "${RED}Error:${NC} cannot remove ${conf_file} (need sudo without password)." ; exit 1
     fi
   fi
+  
   reload_supervisor || echo -e "${YELLOW}⚠️  Supervisor reload skipped.${NC}"
-  echo -e "${GREEN}✅ Worker removed.${NC}"
+  echo -e "${GREEN}✅ Worker stopped and removed.${NC}"
+  echo -e "${CYAN}Note:${NC} Log files remain in project storage/logs directory"
 }
 
 cmd_list() {
@@ -260,7 +315,7 @@ cmd_list() {
 cmd_restart() {
   local user="$1"
   if [ -z "$user" ]; then print_usage; exit 1; fi
-  echo -e "${YELLOW}🔁 Restarting worker for ${user}...${NC}"
+  echo -e "${YELLOW}🔄 Restarting worker for ${user}...${NC}"
   supervisorctl_cmd restart "${user}-worker" >/dev/null 2>&1 && \
     echo -e "${GREEN}✅ Worker restarted.${NC}" || \
     echo -e "${RED}⚠️  Worker not found or failed to restart.${NC}"
@@ -273,7 +328,6 @@ cmd_status() {
   fi
 
   if [ -n "$user" ]; then
-    # show single user
     supervisorctl_cmd status | grep -E "^${user}-worker\b" >/dev/null 2>&1 || { echo -e "${RED}No worker for ${user}.${NC}"; return; }
     lines=$(supervisorctl_cmd status | grep -E "^${user}-worker\b")
   else
@@ -282,7 +336,6 @@ cmd_status() {
   fi
 
   while IFS= read -r line; do
-    # parse "name                 RUNNING   pid 1234, uptime 0:00:10"
     name=$(echo "$line" | awk '{print $1}')
     state=$(echo "$line" | awk '{print $2}')
     if [[ "$state" == "RUNNING" ]]; then
@@ -306,7 +359,6 @@ cmd_logs() {
     echo -e "${RED}Invalid option. Choose 'out' or 'err'.${NC}"; exit 1
   fi
 
-  # find domain auto (if multiple ask)
   local domain=$(auto_pick_domain_interactive "$user") || { echo -e "${RED}No domain found for user ${user}.${NC}"; exit 1; }
 
   local project_dir="${BASE_WEB_ROOT}/${user}/data/www/${domain}"
@@ -318,24 +370,28 @@ cmd_logs() {
   fi
 
   if [ ! -f "$file" ]; then
-    echo -e "${YELLOW}Log file not found, creating empty file:${NC} $file"
+    echo -e "${YELLOW}⚠️  Log file not found: ${file}${NC}"
+    echo -e "${CYAN}Creating empty log file...${NC}"
     if is_root; then
       mkdir -p "$(dirname "$file")"
       touch "$file"
       chown "${user}:${user}" "$file" 2>/dev/null || true
+      chmod 644 "$file" 2>/dev/null || true
     else
       if sudo -n true 2>/dev/null; then
         sudo -n mkdir -p "$(dirname "$file")"
         sudo -n touch "$file"
         sudo -n chown "${user}:${user}" "$file" 2>/dev/null || true
+        sudo -n chmod 644 "$file" 2>/dev/null || true
       else
         echo -e "${RED}Cannot create log file (need sudo).${NC}"; exit 1
       fi
     fi
   fi
 
-  echo -e "${CYAN}Tailing ${file} (ctrl+c to stop)...${NC}"
-  # run tail -f (no sudo; tail readable by owner; if not, try sudo -n tail)
+  echo -e "${CYAN}📄 Tailing ${file}${NC}"
+  echo -e "${YELLOW}(Press Ctrl+C to stop)${NC}\n"
+  
   if [ -r "$file" ]; then
     tail -f "$file"
   else
@@ -363,5 +419,6 @@ case "$cmd" in
   restart) cmd_restart "$@";;
   status) cmd_status "$@";;
   logs) cmd_logs "$@";;
+  --help|-h|help) print_usage;;
   *) print_usage;;
 esac
