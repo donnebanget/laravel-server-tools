@@ -1,0 +1,97 @@
+#!/bin/bash
+# Laravel Smart Deploy Script
+# Author: Donny Iskandarsyah
+# Credits: ChatGPT (GPT-5)
+# Version: 1.0.0
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+MODE="normal"
+USER_PREFIX=$(whoami)
+
+for arg in "$@"; do
+  case $arg in
+    --init) MODE="init" ;;
+    --update) MODE="update" ;;
+  esac
+done
+
+echo -e "\n${CYAN}🚀 Starting Laravel Deploy (mode: ${MODE})...${NC}\n"
+
+if [ ! -f "artisan" ]; then
+  echo -e "${RED}Error:${NC} Must be run from Laravel project root."
+  exit 1
+fi
+
+if [ "$MODE" = "update" ]; then
+  echo -e "${YELLOW}🔄 Updating from Git...${NC}"
+  git reset --hard
+  git clean -fd
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  git pull origin "$BRANCH"
+  echo -e "${GREEN}✅ Updated branch '$BRANCH'.${NC}\n"
+fi
+
+echo -e "${YELLOW}📦 Installing Composer dependencies...${NC}"
+composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
+echo -e "${GREEN}✅ Composer done.${NC}\n"
+
+if [ -f "package.json" ]; then
+  echo -e "${YELLOW}🧩 Installing NPM packages...${NC}"
+  npm install
+  echo -e "${GREEN}✅ NPM done.${NC}"
+  echo -e "\n${YELLOW}⚙️ Building assets...${NC}"
+  npm run build
+  echo -e "${GREEN}✅ Build complete.${NC}\n"
+else
+  echo -e "${CYAN}Skipping NPM (no package.json).${NC}\n"
+fi
+
+echo -e "${YELLOW}🧹 Clearing caches...${NC}"
+php artisan optimize:clear || true
+
+has_artisan_cmd() {
+  php artisan | grep -q "$1"
+}
+
+if [ "$MODE" = "init" ]; then
+  echo -e "${YELLOW}🔧 Full Laravel initialization...${NC}"
+  has_artisan_cmd "opcache:clear" && php artisan opcache:clear || true
+  has_artisan_cmd "icons:cache" && php artisan icons:cache || true
+  php artisan optimize || true
+  php artisan storage:link || true
+  echo -e "${GREEN}✅ Init complete.${NC}"
+
+elif [ "$MODE" = "update" ]; then
+  echo -e "${YELLOW}🔧 Laravel update tasks...${NC}"
+  has_artisan_cmd "opcache:clear" && php artisan opcache:clear || true
+  has_artisan_cmd "icons:cache" && php artisan icons:cache || true
+  php artisan optimize || true
+  echo -e "${GREEN}✅ Update done.${NC}"
+
+else
+  echo -e "${YELLOW}⚙️ Quick maintenance...${NC}"
+  has_artisan_cmd "opcache:clear" && php artisan opcache:clear || true
+  has_artisan_cmd "icons:cache" && php artisan icons:cache || true
+  php artisan optimize || true
+  echo -e "${GREEN}✅ Maintenance complete.${NC}"
+fi
+
+echo -e "\n${YELLOW}🔁 Restarting Supervisor if available...${NC}"
+
+if command -v supervisorctl &>/dev/null; then
+  if sudo -n true 2>/dev/null; then
+    sudo supervisorctl restart "${USER_PREFIX}-worker" 2>/dev/null || \
+      echo "⚠️  ${USER_PREFIX}-worker not found or not restarted."
+  else
+    echo "⚠️  Skipping Supervisor restart (no sudo privilege)."
+  fi
+else
+  echo -e "${CYAN}Supervisor not installed.${NC}"
+fi
+
+echo -e "${GREEN}🎉 Deployment completed!${NC}\n"

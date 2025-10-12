@@ -1,0 +1,59 @@
+#!/bin/bash
+# Laravel Worker Configurator
+# Author: Donny Iskandarsyah
+# Credits: ChatGPT (GPT-5)
+# Version: 1.0.0
+
+if [ $# -lt 2 ]; then
+  echo "Usage: worker [user] [domain] [--queue=queue_name]"
+  exit 1
+fi
+
+USER_NAME=$1
+DOMAIN=$2
+QUEUE=""
+
+for arg in "$@"; do
+  case $arg in
+    --queue=*) QUEUE="${arg#*=}" ;;
+  esac
+done
+
+WORKER_NAME="${USER_NAME}-worker"
+SITE_DIR="/var/www/${USER_NAME}/data/www/${DOMAIN}"
+CONF_FILE="/etc/supervisor/conf.d/${WORKER_NAME}.conf"
+OUT_LOG="/var/log/laravel-workers/${USER_NAME}-${DOMAIN}.out.log"
+ERR_LOG="/var/log/laravel-workers/${USER_NAME}-${DOMAIN}.err.log"
+
+COMMAND="php artisan queue:work database --sleep=10 --tries=1"
+[ -n "$QUEUE" ] && COMMAND="$COMMAND --queue=${QUEUE}"
+
+echo "🛠 Creating Supervisor config for: $WORKER_NAME"
+
+sudo bash -c "cat > '$CONF_FILE' <<EOL
+[program:${WORKER_NAME}]
+command=${COMMAND}
+directory=${SITE_DIR}
+autostart=true
+startsecs=3
+startretries=3
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=${USER_NAME}
+numprocs=1
+redirect_stderr=true
+stdout_logfile=${OUT_LOG}
+stderr_logfile=${ERR_LOG}
+stdout_logfile_maxbytes=2MB
+stderr_logfile_maxbytes=2MB
+stopwaitsecs=3600
+environment=APP_ENV=production,APP_DEBUG=false
+EOL"
+
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl restart "${WORKER_NAME}"
+
+echo "✅ Worker '${WORKER_NAME}' set for domain '${DOMAIN}'"
+echo "   Logs: ${OUT_LOG}"
