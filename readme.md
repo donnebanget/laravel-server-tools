@@ -80,22 +80,27 @@ Quickly create and manage Laravel queue workers under Supervisor.
 
 #### Usage
 
-    worker [user] [domain] [--queue=optional_queue_name]
+    worker create [user] [domain?] [queue?]
+	worker remove [user]
+	worker list
+	worker restart [user]
+	worker status [user?]
+	worker logs [user] [out|err]
 
 #### Example
 
-    worker user-example example.com
-    worker user-example example.com --queue=v2
+    worker create user-example example.com
+    worker create user-example example.com --queue=v2
 
 This will:
 - Create `/etc/supervisor/conf.d/[user]-worker.conf`
 - Link the worker to your Laravel directory `/var/www/[user]/data/www/[domain]/`
-- Save logs to `/var/log/laravel-workers/[user]-[domain].out.log`
+- Save logs to `{project_dir}/storage/logs/worker.out|err.log`
 
 #### Logs
 
-- STDOUT → `/var/log/laravel-workers/[user]-[domain].out.log`  
-- STDERR → `/var/log/laravel-workers/[user]-[domain].err.log`
+- STDOUT → `{project_dir}/storage/logs/worker.out.log`  
+- STDERR → `{project_dir}/storage/logs/worker.err.log`
 
 ---
 
@@ -127,11 +132,11 @@ This will:
 
 ### Create worker for default queue:
 
-    worker user-example example.com
+    worker create user-example example.com
 
 ### Create worker for a specific queue:
 
-    worker user-example example.com --queue=v2
+    worker create user-example example.com --queue=v2
 
 ---
 
@@ -144,28 +149,6 @@ Designed for systems where Laravel resides under:
 Works perfectly with:
 - **Fastpanel**
 - Standard **Debian/Ubuntu VPS**
-
----
-
-## 🛠 Maintenance
-
-Logs are stored under `/var/log/laravel-workers`.  
-You can rotate logs automatically with this optional **logrotate config**:
-
-    sudo tee /etc/logrotate.d/laravel-workers >/dev/null <<'EOF'
-    /var/log/laravel-workers/*.log {
-        weekly
-        rotate 4
-        compress
-        missingok
-        notifempty
-        create 644 root root
-    }
-    EOF
-
-Apply rotation manually:
-
-    sudo logrotate -f /etc/logrotate.conf
 
 ---
 

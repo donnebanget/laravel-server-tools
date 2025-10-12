@@ -47,9 +47,8 @@ echo
 echo "✅ Installation complete!"
 echo
 echo "You can now use:"
-echo "   worker start"
-echo "   worker stop"
-echo "   worker status"
+echo "   deploy | deploy --init | deploy --update"
+echo "   worker create | stop | status | delete | logs"
 echo
 echo "To enable completions immediately, run:"
 echo "   source /etc/bash_completion"
