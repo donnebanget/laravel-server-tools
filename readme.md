@@ -49,7 +49,7 @@ This will automatically:
 - Clone the repository
 - Install binaries to `/usr/local/bin`
 - Enable bash completions in `/etc/bash_completion.d`
-- Create worker log directory `/var/log/laravel-workers` (with secure permissions)
+- Validate required dependencies (git, supervisor)
 
 After installation, enable completions immediately by running:
 
@@ -194,10 +194,7 @@ environment=APP_ENV=production,APP_DEBUG=false
 When you create a worker, the script automatically creates `/etc/sudoers.d/[user]-worker` to allow the user to manage their own worker without needing full sudo access:
 
 ```bash
-user-example ALL=(root) NOPASSWD: /usr/bin/supervisorctl restart user-example-worker
-user-example ALL=(root) NOPASSWD: /usr/bin/supervisorctl status user-example-worker
-user-example ALL=(root) NOPASSWD: /usr/bin/supervisorctl stop user-example-worker
-user-example ALL=(root) NOPASSWD: /usr/bin/supervisorctl start user-example-worker
+user-example ALL=(root) NOPASSWD: /usr/bin/supervisorctl restart user-example-worker, /usr/bin/supervisorctl status user-example-worker, /usr/bin/supervisorctl stop user-example-worker, /usr/bin/supervisorctl start user-example-worker
 ```
 
 This means:
@@ -316,7 +313,6 @@ Designed for systems where Laravel resides under:
 | `deploy: command not found` | Path not reloaded | Run `source /etc/bash_completion` or restart shell |
 | `Supervisor not found` | Not installed | Run `sudo apt install supervisor` |
 | `Permission denied` on deploy | Insufficient file permissions | Check ownership of Laravel files |
-| `Permission denied` on worker | Insufficient sudo rights | Add user to sudoers with NOPASSWD for supervisorctl |
 | Worker not starting | Invalid queue connection | Check `QUEUE_CONNECTION` in `.env` |
 | `Composer install failed` | Memory limit or dependencies | Increase PHP memory_limit or check composer.json |
 | Git pull fails | Uncommitted changes | Commit or stash changes, or use `--update` (does hard reset) |
@@ -324,7 +320,9 @@ Designed for systems where Laravel resides under:
 
 ### Common Permission Setup
 
-For users to manage Supervisor without full sudo access:
+Sudoers entries are **automatically created** when you use `worker create`. No manual setup needed!
+
+If you need to manually add permissions for other commands:
 
 ```bash
 # Edit sudoers
@@ -387,6 +385,9 @@ username ALL=(ALL) NOPASSWD: /usr/bin/supervisorctl
 - ✅ Increased log rotation (10MB, 5 backups)
 - ✅ Safer default permissions (755 instead of 777)
 - ✅ Added --help flag to commands
+- ✅ **Auto-generate sudoers entries for workers**
+- ✅ Fixed deploy script to work with specific sudo permissions
+- ✅ Removed unused /var/log/laravel-workers directory
 
 ### v1.0.0
 - Initial release
