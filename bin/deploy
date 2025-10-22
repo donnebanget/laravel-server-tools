@@ -156,7 +156,7 @@ if [ "$MODE" = "init" ]; then
   echo -e "${YELLOW}🔧 Full Laravel initialization...${NC}"
   has_artisan_cmd "opcache:clear" && php artisan opcache:clear || true
   has_artisan_cmd "icons:cache" && php artisan icons:cache || true
-  php artisan optimize || true
+  #php artisan optimize || true
   php artisan storage:link || true
   echo -e "${GREEN}✅ Init complete.${NC}"
 
@@ -164,14 +164,14 @@ elif [ "$MODE" = "update" ]; then
   echo -e "${YELLOW}🔧 Laravel update tasks...${NC}"
   has_artisan_cmd "opcache:clear" && php artisan opcache:clear || true
   has_artisan_cmd "icons:cache" && php artisan icons:cache || true
-  php artisan optimize || true
+  #php artisan optimize || true
   echo -e "${GREEN}✅ Update done.${NC}"
 
 else
   echo -e "${YELLOW}⚙️ Quick maintenance...${NC}"
   has_artisan_cmd "opcache:clear" && php artisan opcache:clear || true
   has_artisan_cmd "icons:cache" && php artisan icons:cache || true
-  php artisan optimize || true
+  #php artisan optimize || true
   echo -e "${GREEN}✅ Maintenance complete.${NC}"
 fi
 
