@@ -101,7 +101,7 @@ fi
 echo -e "${GREEN}✅ Composer done.${NC}\n"
 
 # NPM build (only in update mode or if explicitly needed)
-if [ -f "package.json" ] && [ "$MODE" = "update" ]; then
+if [ -f "package.json" ] && { [ "$MODE" = "init" ] || [ "$MODE" = "update" ]; }; then
   command -v npm >/dev/null 2>&1 || { echo -e "${YELLOW}⚠️  NPM not found, skipping build.${NC}\n"; }
   
   if command -v npm >/dev/null 2>&1; then
@@ -138,7 +138,7 @@ else
   if [ ! -f "package.json" ]; then
     echo -e "${CYAN}ℹ️  Skipping NPM (no package.json).${NC}\n"
   else
-    echo -e "${CYAN}ℹ️  Skipping NPM build (not in update mode).${NC}\n"
+    echo -e "${CYAN}ℹ️  Skipping NPM build (not in init/update mode).${NC}\n"
   fi
 fi
 
