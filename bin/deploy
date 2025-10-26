@@ -1,8 +1,8 @@
 #!/bin/bash
 # Laravel Smart Deploy Script
 # Author: Donny Iskandarsyah
-# Credits: ChatGPT (GPT-5)
-# Version: 1.0.1
+# Credits: ChatGPT (GPT-5) & Claude (Sonnet 4.5)
+# Version: 2.0.0
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -179,15 +179,28 @@ fi
 echo -e "\n${YELLOW}🔄 Restarting Supervisor if available...${NC}"
 
 if command -v supervisorctl &>/dev/null; then
-  # Try to restart worker directly (will succeed if user has specific sudo permission)
-  if sudo supervisorctl restart "${USER_PREFIX}-worker" 2>/dev/null; then
-    echo -e "${GREEN}✅ Worker '${USER_PREFIX}-worker' restarted.${NC}"
+  WORKER_NAME="${USER_PREFIX}-worker"
+  
+  # Try to restart directly with sudo -n (passwordless)
+  # This will only work if sudoers file was created by 'worker create'
+  if sudo -n supervisorctl restart "${WORKER_NAME}" 2>/dev/null; then
+    echo -e "${GREEN}✅ Worker '${WORKER_NAME}' restarted.${NC}"
   else
-    # Check if it's because worker doesn't exist or no permission
-    if sudo supervisorctl status "${USER_PREFIX}-worker" &>/dev/null; then
-      echo -e "${YELLOW}⚠️  Failed to restart worker (permission issue).${NC}"
+    # Check exit code to determine the issue
+    EXIT_CODE=$?
+    
+    # Try to check status (also needs sudo -n)
+    if sudo -n supervisorctl status "${WORKER_NAME}" &>/dev/null; then
+      # Worker exists but restart failed (shouldn't happen if status works)
+      echo -e "${YELLOW}⚠️  Worker exists but restart failed.${NC}"
     else
-      echo -e "${CYAN}ℹ️  Worker '${USER_PREFIX}-worker' doesn't exist (skip restart).${NC}"
+      # Either worker doesn't exist OR no sudo permissions
+      # We can't distinguish, so give helpful message for both cases
+      echo -e "${CYAN}ℹ️  Worker restart skipped (not configured or no permissions).${NC}"
+      echo -e "${CYAN}💡 To enable auto-restart on deploy:${NC}"
+      echo -e "   1. Login as root or user with sudo"
+      echo -e "   2. Run: ${YELLOW}worker create ${USER_PREFIX}${NC}"
+      echo -e "   3. This will setup passwordless restart for this user"
     fi
   fi
 else
