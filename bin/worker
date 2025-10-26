@@ -26,8 +26,8 @@ SUPERVISOR_CONF_DIR="/etc/supervisor/conf.d"
 
 # ---- Auto-detect control panel ----
 detect_control_panel() {
-  # CloudPanel detection
-  if [ -d "/home" ] && [ -f "/usr/local/cp/version" ]; then
+  # CloudPanel detection (check for clpctl or common CloudPanel structure)
+  if [ -d "/home" ] && { [ -f "/usr/local/bin/clpctl" ] || [ -d "/home/clp" ]; }; then
     echo "/home"
     return 0
   fi
@@ -39,7 +39,7 @@ detect_control_panel() {
   fi
   
   # Plesk detection
-  if [ -d "/var/www/vhosts" ]; then
+  if [ -d "/var/www/vhosts" ] && [ -f "/usr/local/psa/version" ]; then
     echo "/var/www/vhosts"
     return 0
   fi
@@ -50,7 +50,17 @@ detect_control_panel() {
     return 0
   fi
   
-  # Default fallback
+  # Default fallback to /home if it has user directories with htdocs
+  if [ -d "/home" ]; then
+    for dir in /home/*/htdocs; do
+      if [ -d "$dir" ]; then
+        echo "/home"
+        return 0
+      fi
+    done
+  fi
+  
+  # Final fallback
   echo "/var/www"
 }
 
