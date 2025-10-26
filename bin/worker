@@ -136,13 +136,17 @@ find_laravel_sites_for_user() {
     
     # Check if base itself is a Laravel project
     if [ -f "${base}/artisan" ]; then
-      basename "$base"
+      echo "$(basename "$base")"
       continue
     fi
     
-    # Search subdirectories
-    find "$base" -maxdepth 1 -mindepth 1 -type d -printf "%f\n" 2>/dev/null | while read -r d; do
-      [ -f "${base}/${d}/artisan" ] && echo "$d"
+    # Search subdirectories for Laravel projects
+    find "$base" -maxdepth 2 -mindepth 1 -name "artisan" -type f 2>/dev/null | while read -r artisan_path; do
+      # Get directory containing artisan
+      local project_dir=$(dirname "$artisan_path")
+      # Get domain name (relative to base)
+      local domain=$(echo "$project_dir" | sed "s|^${base}/||" | sed 's|/.*||')
+      echo "$domain"
     done
   done | sort -u
 }
