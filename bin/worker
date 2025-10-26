@@ -2,7 +2,7 @@
 # =====================================================
 # Laravel Worker Pro CLI
 # /usr/local/bin/worker
-# Version: 1.0.1
+# Version: 1.1.0 - Multi Control Panel Support
 # =====================================================
 # Features:
 #   worker create [user] [domain?] [queue?]
@@ -12,6 +12,9 @@
 #   worker status [user?]
 #   worker logs [user] [out|err]
 # =====================================================
+# Supported Control Panels:
+#   - CloudPanel, FastPanel, Plesk, cPanel, Generic
+# =====================================================
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -20,7 +23,38 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 SUPERVISOR_CONF_DIR="/etc/supervisor/conf.d"
-BASE_WEB_ROOT="/var/www"
+
+# ---- Auto-detect control panel ----
+detect_control_panel() {
+  # CloudPanel detection
+  if [ -d "/home" ] && [ -f "/usr/local/cp/version" ]; then
+    echo "/home"
+    return 0
+  fi
+  
+  # FastPanel detection
+  if [ -d "/var/www" ] && [ -f "/usr/local/fastpanel/version" ]; then
+    echo "/var/www"
+    return 0
+  fi
+  
+  # Plesk detection
+  if [ -d "/var/www/vhosts" ]; then
+    echo "/var/www/vhosts"
+    return 0
+  fi
+  
+  # cPanel detection
+  if [ -d "/home" ] && [ -f "/usr/local/cpanel/version" ]; then
+    echo "/home"
+    return 0
+  fi
+  
+  # Default fallback
+  echo "/var/www"
+}
+
+BASE_WEB_ROOT=$(detect_control_panel)
 
 # ---- Helpers ----
 is_root() { [ "$(id -u)" -eq 0 ]; }
@@ -86,13 +120,31 @@ supervisorctl_cmd() {
 # ---- Domain / project detection ----
 find_laravel_sites_for_user() {
   local user="$1"
-  local base="${BASE_WEB_ROOT}/${user}/data/www"
-  if [ ! -d "$base" ]; then
-    return 1
-  fi
-  find "$base" -maxdepth 1 -mindepth 1 -type d -printf "%f\n" 2>/dev/null | while read -r d; do
-    [ -f "${base}/${d}/artisan" ] && echo "$d"
-  done
+  local base
+  
+  # Try different path structures based on control panel
+  local paths=(
+    "${BASE_WEB_ROOT}/${user}/data/www"           # FastPanel
+    "${BASE_WEB_ROOT}/${user}/htdocs"             # CloudPanel
+    "${BASE_WEB_ROOT}/${user}/httpdocs"           # Plesk
+    "${BASE_WEB_ROOT}/${user}/public_html"        # cPanel
+    "${BASE_WEB_ROOT}/${user}"                    # Generic
+  )
+  
+  for base in "${paths[@]}"; do
+    if [ ! -d "$base" ]; then continue; fi
+    
+    # Check if base itself is a Laravel project
+    if [ -f "${base}/artisan" ]; then
+      basename "$base"
+      continue
+    fi
+    
+    # Search subdirectories
+    find "$base" -maxdepth 1 -mindepth 1 -type d -printf "%f\n" 2>/dev/null | while read -r d; do
+      [ -f "${base}/${d}/artisan" ] && echo "$d"
+    done
+  done | sort -u
 }
 
 auto_pick_domain_interactive() {
@@ -122,7 +174,7 @@ auto_pick_domain_interactive() {
 
 # ---- Commands ----
 print_usage() {
-  echo -e "${CYAN}Laravel Worker Manager v1.0.1${NC}"
+  echo -e "${CYAN}Laravel Worker Manager v1.1.0${NC}"
   echo ""
   echo -e "${YELLOW}Usage:${NC}"
   echo "  worker create [user] [domain?] [queue?]    Create a new worker"
@@ -138,9 +190,17 @@ print_usage() {
   echo "  worker remove john --force"
   echo "  worker logs john out"
   echo ""
+  echo -e "${YELLOW}Supported Control Panels:${NC}"
+  echo "  • CloudPanel (/home/user/htdocs)"
+  echo "  • FastPanel (/var/www/user/data/www)"
+  echo "  • Plesk (/var/www/vhosts/user/httpdocs)"
+  echo "  • cPanel (/home/user/public_html)"
+  echo "  • Generic (/var/www/user)"
+  echo ""
   echo -e "${YELLOW}Notes:${NC}"
   echo "  - Logs are stored in: {project}/storage/logs/worker.out.log & worker.err.log"
   echo "  - Worker config auto-detects queue driver and environment from .env"
+  echo "  - Detected base path: ${BASE_WEB_ROOT}"
 }
 
 cmd_create() {
@@ -156,12 +216,31 @@ cmd_create() {
     echo -e "${CYAN}🌐 Auto-detected domain:${NC} ${domain}"
   fi
 
-  local project_dir="${BASE_WEB_ROOT}/${user}/data/www/${domain}"
-  if [ ! -d "$project_dir" ]; then
-    echo -e "${RED}❌ Project directory not found:${NC} ${project_dir}"; exit 1
-  fi
-  if [ ! -f "${project_dir}/artisan" ]; then
-    echo -e "${RED}❌ No artisan file found in:${NC} ${project_dir}"; exit 1
+  # Try different path structures
+  local project_dir=""
+  local paths=(
+    "${BASE_WEB_ROOT}/${user}/data/www/${domain}"
+    "${BASE_WEB_ROOT}/${user}/htdocs/${domain}"
+    "${BASE_WEB_ROOT}/${user}/httpdocs/${domain}"
+    "${BASE_WEB_ROOT}/${user}/public_html/${domain}"
+    "${BASE_WEB_ROOT}/${user}/${domain}"
+    "${BASE_WEB_ROOT}/${user}/htdocs"
+    "${BASE_WEB_ROOT}/${user}/public_html"
+    "${BASE_WEB_ROOT}/${user}/httpdocs"
+  )
+  
+  for path in "${paths[@]}"; do
+    if [ -f "${path}/artisan" ]; then
+      project_dir="$path"
+      break
+    fi
+  done
+  
+  if [ -z "$project_dir" ]; then
+    echo -e "${RED}❌ Laravel project not found for user '${user}' domain '${domain}'${NC}"
+    echo -e "${CYAN}Searched paths:${NC}"
+    printf '  %s\n' "${paths[@]}"
+    exit 1
   fi
 
   local conf_file="${SUPERVISOR_CONF_DIR}/${user}-worker.conf"
@@ -191,6 +270,7 @@ cmd_create() {
   fi
 
   echo -e "${YELLOW}⚙️  Creating worker for user '${user}' (domain: ${domain})...${NC}"
+  echo -e "${CYAN}   Project path:${NC} ${project_dir}"
 
   # Prepare conf content
   read -r -d '' conf_content <<EOF || true
@@ -402,7 +482,30 @@ cmd_logs() {
 
   local domain=$(auto_pick_domain_interactive "$user") || { echo -e "${RED}No domain found for user ${user}.${NC}"; exit 1; }
 
-  local project_dir="${BASE_WEB_ROOT}/${user}/data/www/${domain}"
+  # Try different path structures
+  local project_dir=""
+  local paths=(
+    "${BASE_WEB_ROOT}/${user}/data/www/${domain}"
+    "${BASE_WEB_ROOT}/${user}/htdocs/${domain}"
+    "${BASE_WEB_ROOT}/${user}/httpdocs/${domain}"
+    "${BASE_WEB_ROOT}/${user}/public_html/${domain}"
+    "${BASE_WEB_ROOT}/${user}/${domain}"
+    "${BASE_WEB_ROOT}/${user}/htdocs"
+    "${BASE_WEB_ROOT}/${user}/public_html"
+    "${BASE_WEB_ROOT}/${user}/httpdocs"
+  )
+  
+  for path in "${paths[@]}"; do
+    if [ -f "${path}/artisan" ]; then
+      project_dir="$path"
+      break
+    fi
+  done
+  
+  if [ -z "$project_dir" ]; then
+    echo -e "${RED}❌ Project directory not found for user ${user}.${NC}"; exit 1
+  fi
+  
   local file
   if [ "$which" == "out" ]; then
     file="${project_dir}/storage/logs/worker.out.log"
